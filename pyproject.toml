@@ -1,0 +1,18 @@
+[project]
+name = "skin-care-ai"
+version = "0.1.0"
+description = "AI-powered skin care issue analysis assistant"
+readme = "README.md"
+authors = [
+    { name = "pranav", email = "pranavlande444@gmail.com" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.145.0",
+    "google-genai>=2.31.0",
+    "httpx>=0.28.1",
+    "pydantic>=2.14.1",
+    "pytest>=9.1.1",
+    "python-dotenv>=1.2.4",
+    "uvicorn>=0.54.0",
+]

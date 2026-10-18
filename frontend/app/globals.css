@@ -1,0 +1,137 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200");
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  /* Brand & Semantic Colors */
+  --color-primary: #20342e;
+  --color-primary-container: #364b44;
+  --color-on-primary: #ffffff;
+  --color-on-primary-container: #a3bab1;
+  --color-primary-fixed: #d0e8de;
+  --color-primary-fixed-dim: #b4ccc2;
+  --color-on-primary-fixed: #0a1f19;
+  --color-on-primary-fixed-variant: #364b44;
+  --color-inverse-primary: #b4ccc2;
+
+  --color-secondary: #4f635c;
+  --color-secondary-container: #cfe5dc;
+  --color-on-secondary: #ffffff;
+  --color-on-secondary-container: #536760;
+  --color-secondary-fixed: #d2e7df;
+  --color-secondary-fixed-dim: #b6cbc3;
+  --color-on-secondary-fixed: #0c1f1a;
+  --color-on-secondary-fixed-variant: #374b44;
+
+  --color-tertiary: #422a27;
+  --color-tertiary-container: #5b403c;
+  --color-on-tertiary: #ffffff;
+  --color-on-tertiary-container: #d1ada7;
+  --color-tertiary-fixed: #ffdad5;
+  --color-tertiary-fixed-dim: #e4beb8;
+  --color-on-tertiary-fixed: #2b1613;
+  --color-on-tertiary-fixed-variant: #5b403c;
+
+  --color-background: #fcf9f8;
+  --color-on-background: #1c1b1b;
+  --color-surface: #fcf9f8;
+  --color-on-surface: #1c1b1b;
+  --color-surface-variant: #e5e2e1;
+  --color-on-surface-variant: #424845;
+  --color-surface-tint: #4d635b;
+  --color-surface-dim: #dcd9d9;
+  --color-surface-bright: #fcf9f8;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f6f3f2;
+  --color-surface-container: #f0eded;
+  --color-surface-container-high: #eae7e7;
+  --color-surface-container-highest: #e5e2e1;
+  --color-inverse-surface: #313030;
+  --color-inverse-on-surface: #f3f0ef;
+
+  --color-outline: #727875;
+  --color-outline-variant: #c2c8c4;
+  --color-error: #ba1a1a;
+  --color-error-container: #ffdad6;
+  --color-on-error: #ffffff;
+  --color-on-error-container: #93000a;
+
+  /* Custom Spacings */
+  --spacing-space-xs: 0.25rem;
+  --spacing-space-sm: 0.5rem;
+  --spacing-space-md: 1rem;
+  --spacing-space-lg: 1.5rem;
+  --spacing-space-xl: 2.5rem;
+  --spacing-gutter: 1.5rem;
+  --spacing-margin: 3rem;
+  --spacing-gutter-mobile: 1rem;
+  --spacing-margin-mobile: 1.25rem;
+}
+
+/* Base resets */
+html, body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--color-background);
+  color: var(--color-on-surface);
+  font-family: var(--font-sans);
+}
+
+/* Material symbol styling */
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  display: inline-block;
+  line-height: 1;
+  text-transform: none;
+  letter-spacing: normal;
+  word-wrap: normal;
+  white-space: nowrap;
+  direction: ltr;
+}
+
+/* Typography Utilities */
+.font-headline-lg {
+  font-size: 28px;
+  line-height: 36px;
+  letter-spacing: -0.02em;
+}
+
+.font-headline-md {
+  font-size: 20px;
+  line-height: 28px;
+  letter-spacing: -0.01em;
+}
+
+.font-body-lg {
+  font-size: 16px;
+  line-height: 26px;
+  letter-spacing: -0.005em;
+}
+
+.font-body-md {
+  font-size: 14px;
+  line-height: 22px;
+  letter-spacing: 0em;
+}
+
+.font-body-sm {
+  font-size: 13px;
+  line-height: 18px;
+  letter-spacing: 0.005em;
+}
+
+.font-label-md {
+  font-size: 12px;
+  line-height: 16px;
+  letter-spacing: 0.04em;
+}
+
+.font-label-sm {
+  font-size: 11px;
+  line-height: 14px;
+  letter-spacing: 0.06em;
+}

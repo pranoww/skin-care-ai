@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+build/
+dist/
+wheels/
+*.egg-info/
+.venv/
+
+# Environment files & Secrets
+.env
+.env.*
+!.env.example
+
+# Testing & Cache
+.pytest_cache/
+.coverage
+coverage/
+htmlcov/
+
+# System
+.DS_Store
+Thumbs.db

@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+build/
+dist/
+wheels/
+*.egg-info/
+.venv/
+
+# Environment files & Secrets
+.env
+.env.*
+!.env.example
+
+# Testing & Cache
+.pytest_cache/
+.coverage
+coverage/
+htmlcov/
+
+# Node & Next.js
+node_modules/
+.next/
+out/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# System & Editor
+.DS_Store
+Thumbs.db
+AGENTS.md
