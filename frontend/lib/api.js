@@ -1,122 +1,72 @@
 /**
- * API client module for communicating with the FastAPI Skin Care AI backend.
+ * API client for the Skin Care AI FastAPI backend.
  */
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
+export const MAX_MESSAGE_CHARS = 2000;
+
+async function readErrorMessage(response, fallback) {
+  try {
+    const data = await response.json();
+    if (Array.isArray(data?.detail)) {
+      // Pydantic validation errors
+      return data.detail.map((e) => e.msg || e.message).join(', ');
+    }
+    if (typeof data?.detail === 'string') return data.detail;
+  } catch {
+    // body was not JSON
+  }
+  return `${fallback} (status ${response.status})`;
+}
+
+async function request(path, init, fallbackError) {
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, init);
+  } catch {
+    throw new Error(`Can't reach the analysis server. Check that the backend is running at ${API_BASE_URL}.`);
+  }
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, fallbackError));
+  }
+  return response.json();
+}
+
 /**
- * Sends a natural language skin concern description to the backend for analysis.
- * 
- * @param {string} message - User's skin concern description
- * @returns {Promise<Object>} Structured skin concern analysis response
+ * Send a typed skin concern for analysis.
+ * @param {string} message
+ * @returns {Promise<Object>} ChatResponse
  */
 export async function analyzeSkinConcern(message) {
   const trimmed = message ? message.trim() : '';
   if (!trimmed) {
-    throw new Error('Please enter a description of your skin concern.');
+    throw new Error('Please describe your skin concern first.');
   }
-
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/v1/chat`, {
+  return request(
+    '/api/v1/chat',
+    {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: trimmed }),
-    });
-
-    if (!response.ok) {
-      let errorMessage = 'An error occurred while analyzing your concern.';
-      try {
-        const errorData = await response.json();
-        if (errorData && errorData.detail) {
-          if (Array.isArray(errorData.detail)) {
-            // Pydantic validation error list
-            errorMessage = errorData.detail.map(e => e.msg || e.message).join(', ');
-          } else if (typeof errorData.detail === 'string') {
-            errorMessage = errorData.detail;
-          }
-        }
-      } catch {
-        errorMessage = `Service returned status ${response.status} (${response.statusText})`;
-      }
-      throw new Error(errorMessage);
-    }
-
-    const data = await response.json();
-    return data;
-  } catch (err) {
-    if (err.name === 'TypeError' && err.message.includes('fetch')) {
-      throw new Error('Unable to connect to the AI analysis server. Please ensure the backend is running at ' + API_BASE_URL);
-    }
-    throw err;
-  }
+    },
+    'The analysis failed',
+  );
 }
 
 /**
- * Checks backend health status.
- * 
- * @returns {Promise<boolean>} True if backend is healthy
- */
-export async function checkBackendHealth() {
-  try {
-    const response = await fetch(`${API_BASE_URL}/health`, {
-      method: 'GET',
-      cache: 'no-store',
-    });
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Sends recorded audio to the voice analysis endpoint.
- * 
- * @param {Blob} audioBlob - Recorded audio blob from MediaRecorder
- * @param {string} [filename='recording.webm'] - Audio filename
- * @returns {Promise<{transcription: string, analysis: Object, spoken_summary: string, audio?: string}>}
+ * Send a voice recording. When the browser produced its own transcript it is
+ * sent too, so the backend can skip a paid transcription call.
+ * @returns {Promise<{transcription: string, transcription_source: 'client'|'server', analysis: Object, spoken_summary: string, audio?: string, audio_error?: string}>}
  */
 export async function sendVoiceMessage(audioBlob, filename = 'recording.webm', transcriptHint = '') {
   if (!audioBlob || audioBlob.size === 0) {
-    throw new Error('No audio was recorded. Please record your concern and try again.');
+    throw new Error('No audio was recorded. Please try recording again.');
   }
-
   const formData = new FormData();
   formData.append('audio', audioBlob, filename);
   if (transcriptHint && transcriptHint.trim()) {
     formData.append('transcript_hint', transcriptHint.trim());
   }
-
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/v1/voice/chat`, {
-      method: 'POST',
-      body: formData,
-    });
-
-    if (!response.ok) {
-      let errorMessage = 'An error occurred while analyzing your voice recording.';
-      try {
-        const errorData = await response.json();
-        if (errorData && errorData.detail) {
-          if (Array.isArray(errorData.detail)) {
-            errorMessage = errorData.detail.map(e => e.msg || e.message).join(', ');
-          } else if (typeof errorData.detail === 'string') {
-            errorMessage = errorData.detail;
-          }
-        }
-      } catch {
-        errorMessage = `Service returned status ${response.status} (${response.statusText})`;
-      }
-      throw new Error(errorMessage);
-    }
-
-    const data = await response.json();
-    return data;
-  } catch (err) {
-    if (err.name === 'TypeError' && err.message.includes('fetch')) {
-      throw new Error('Unable to connect to the AI analysis server. Please ensure the backend is running at ' + API_BASE_URL);
-    }
-    throw err;
-  }
+  return request('/api/v1/voice/chat', { method: 'POST', body: formData }, 'The voice analysis failed');
 }

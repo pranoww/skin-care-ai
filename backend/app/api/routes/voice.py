@@ -2,15 +2,22 @@
 
 import logging
 from typing import Optional
+
 from fastapi import APIRouter, Depends, File, Form, UploadFile, status
 
-from app.core.exceptions import AIAudioValidationError, VOICE_RESPONSES
+from app.api.deps import (
+    get_ai_service,
+    get_app_settings,
+    get_speech_service,
+    get_tts_service,
+)
+from app.core.config import Settings
+from app.core.exceptions import VOICE_RESPONSES, AIAudioValidationError, AIServiceError
 from app.schemas.chat import VoiceChatResponse
-from app.services.ai_service import AIService, BaseAIService
-from app.services.speech_service import BaseSpeechService, SpeechService
+from app.services.ai_service import BaseAIService
+from app.services.speech_service import BaseSpeechService
 from app.services.tts_service import (
     BaseTTSService,
-    TTSService,
     audio_bytes_to_data_uri,
     build_spoken_summary,
 )
@@ -19,20 +26,25 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/voice", tags=["Voice"])
 
-
-def get_speech_service() -> BaseSpeechService:
-    """Dependency provider for Speech-to-Text service."""
-    return SpeechService()
+__all__ = ["router", "get_ai_service", "get_speech_service", "get_tts_service"]
 
 
-def get_ai_service() -> BaseAIService:
-    """Dependency provider for skin care AI analysis service."""
-    return AIService()
+async def _read_upload_capped(audio: UploadFile, max_bytes: int) -> bytes:
+    """Read the upload, refusing to load more than ``max_bytes`` into memory."""
+    data = await audio.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        max_mb = max_bytes // (1024 * 1024)
+        raise AIAudioValidationError(f"Audio payload exceeds maximum allowed size of {max_mb}MB.")
+    return data
 
 
-def get_tts_service() -> BaseTTSService:
-    """Dependency provider for Text-to-Speech service."""
-    return TTSService()
+def _check_transcript_length(text: str, settings: Settings) -> str:
+    if len(text) > settings.MAX_MESSAGE_CHARS:
+        raise AIAudioValidationError(
+            f"The recording is too long to analyse (over {settings.MAX_MESSAGE_CHARS} characters of speech). "
+            "Please describe your concern more briefly."
+        )
+    return text
 
 
 @router.post(
@@ -41,10 +53,10 @@ def get_tts_service() -> BaseTTSService:
     status_code=status.HTTP_200_OK,
     summary="Voice Skin Care Chat Analysis",
     description=(
-        "Accepts recorded audio (multipart/form-data), transcribes it via Gemini Speech-to-Text, "
-        "processes it through the existing input/output guardrails and AI analysis pipeline, "
-        "synthesizes natural conversational speech via Gemini TTS, and returns the transcription, "
-        "structured analysis, and playable audio."
+        "Accepts recorded audio (multipart/form-data). Uses the browser transcript when supplied "
+        "(and USE_CLIENT_TRANSCRIPT is on), otherwise transcribes the audio server-side. The text "
+        "goes through the same guardrails and analysis as /chat, then a spoken summary is "
+        "synthesized when TTS is enabled. A TTS failure never discards the analysis."
     ),
     responses=VOICE_RESPONSES,
 )
@@ -55,51 +67,54 @@ async def voice_chat(
     ),
     transcript_hint: Optional[str] = Form(
         None,
-        description="Optional speech transcript hint",
+        description="Transcript produced by the browser's speech recognition, if available",
     ),
+    settings: Settings = Depends(get_app_settings),
     speech_service: BaseSpeechService = Depends(get_speech_service),
     ai_service: BaseAIService = Depends(get_ai_service),
     tts_service: BaseTTSService = Depends(get_tts_service),
 ) -> VoiceChatResponse:
-    """Full voice-in to voice-out skin care analysis pipeline."""
-    # 1. Read and validate uploaded audio
-    if not audio:
-        raise AIAudioValidationError("No audio file was uploaded.")
-
-    audio_bytes = await audio.read()
-    if not audio_bytes or len(audio_bytes.strip()) == 0:
+    """Voice-in to voice-out skin care analysis pipeline."""
+    audio_bytes = await _read_upload_capped(audio, settings.MAX_AUDIO_SIZE_BYTES)
+    if not audio_bytes:
         raise AIAudioValidationError("Uploaded audio file is empty. Please record audio before submitting.")
 
-    # 2. Transcribe voice to text via Gemini Speech-to-Text
-    transcription = await speech_service.transcribe_audio(
-        audio_bytes=audio_bytes,
-        filename=audio.filename,
-        transcript_hint=transcript_hint,
-    )
+    # 1. Transcript: free browser transcript first, paid server transcription otherwise
+    hint = (transcript_hint or "").strip()
+    if hint and settings.USE_CLIENT_TRANSCRIPT:
+        transcription = hint
+        transcription_source = "client"
+    else:
+        transcription = await speech_service.transcribe_audio(
+            audio_bytes=audio_bytes,
+            filename=audio.filename,
+            transcript_hint=hint or None,
+        )
+        transcription_source = "server"
+    transcription = _check_transcript_length(transcription, settings)
 
-    # 3. Process transcribed text through existing input guardrails & Gemini AI analysis
-    # analyze_skin_concern runs AIGuardrail.check_input_guardrail and apply_output_guardrail
+    # 2. Same guardrails + analysis pipeline as the text endpoint
     analysis = await ai_service.analyze_skin_concern(transcription)
 
-    # 4. Create natural conversational summary for voice
+    # 3. Spoken summary + optional synthesis; failure here keeps the analysis
     spoken_summary = build_spoken_summary(analysis)
-
-    # 5. Synthesize speech from conversational summary via Gemini TTS
     audio_data_uri: Optional[str] = None
-    try:
-        synthesized_bytes = await tts_service.synthesize_speech(spoken_summary)
-        if synthesized_bytes:
-            audio_data_uri = audio_bytes_to_data_uri(synthesized_bytes, mime_type="audio/wav")
-    except Exception as tts_exc:
-        # If TTS service encounters an issue, log the error while preserving the structured analysis
-        logger.warning("TTS synthesis failed or unavailable: %s", str(tts_exc))
-        # Re-raise if it's a domain exception in unit tests where TTS failure is tested explicitly
-        # But ensure we adhere to domain exceptions
-        raise
+    audio_error: Optional[str] = None
+    if settings.TTS_ENABLED:
+        try:
+            synthesized = await tts_service.synthesize_speech(spoken_summary)
+            audio_data_uri = audio_bytes_to_data_uri(synthesized, mime_type="audio/wav")
+        except AIServiceError as tts_exc:
+            logger.warning("TTS failed; returning analysis without audio: %s", tts_exc.message)
+            audio_error = tts_exc.message
+    else:
+        audio_error = "Voice playback is disabled on this server."
 
     return VoiceChatResponse(
         transcription=transcription,
+        transcription_source=transcription_source,
         analysis=analysis,
         spoken_summary=spoken_summary,
         audio=audio_data_uri,
+        audio_error=audio_error,
     )

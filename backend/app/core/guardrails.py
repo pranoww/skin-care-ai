@@ -2,7 +2,7 @@
 
 import logging
 import re
-from typing import Optional, List
+from typing import List, Optional
 
 from app.schemas.chat import ChatResponse, SeverityLevel
 
@@ -28,21 +28,40 @@ HAZARDOUS_PRACTICE_PATTERNS = [
     r"\b(burn off (my |a )?(wart|mole|skin))\b",
 ]
 
+# Patterns are deliberately narrow: each one needs an AI-directed target
+# ("your instructions", "system prompt", "API key") close to the verb, so normal
+# skincare phrasing ("clear acne", "my environment", "the rules for vitamin C")
+# passes. Gaps are bounded to the same sentence with [^.?!\n]{0,N}.
+_SAME_SENTENCE = r"[^.?!\n]{0,40}?"
+_FORGET_VERBS = r"(?:forget|forgt|frget|foget|foegt|fogret)"
+_OVERRIDE_VERBS = r"(?:ignore|ignre|disregard|override|bypass)"
+_AI_RULE_NOUNS = r"(?:instructions|prompts?|rules|guidelines|directives|constraints|programming)"
+
 PROMPT_INJECTION_PATTERNS = [
-    # Forget / Ignore / Disregard instructions (with common typos like foegt, foget, ignre, everyhting)
-    r"\b(fo?rge?t|foegt|foget)\b.*?\b(everything|everyhting|all|rules|instructions|prompts?|context)\b",
-    r"\b(ignore|ignre|disregard|override|bypass|cancel|drop|clear)\b.*?\b(all|previous|prior|system|earlier)?\s*(instructions|prompts?|rules|constraints|context|guidelines)\b",
-    r"\b(reset (your |the )?(instructions|system|rules|memory))\b",
-    r"\b(you are now (an? )?(unrestricted|jailbroken|DAN|developer mode|medical doctor who prescribes))\b",
-    r"\b(system prompt|reveal your prompt|print system instructions|show (me )?your prompt)\b",
-    r"\b(pretend to be|roleplay as|act as) (an unrestricted|a doctor who prescribes|a hacker)\b",
+    # "ignore all previous instructions", "disregard your system prompt"
+    rf"\b{_OVERRIDE_VERBS}\b{_SAME_SENTENCE}\b(?:all|any|your|the|these|those|previous|prior|above|earlier|system|initial|original)\s+(?:\w+\s+)?{_AI_RULE_NOUNS}\b",
+    # "forget everything", "foegt about everyhting", "forget your rules"
+    rf"\b{_FORGET_VERBS}\b\s+(?:about\s+)?(?:everything|everyhting|evrything|all\s+(?:previous|prior|your|the)|your\s+{_AI_RULE_NOUNS}|previous\s+{_AI_RULE_NOUNS})\b",
+    r"\breset\s+(?:your|the)\s+(?:instructions|system|rules|memory)\b",
+    r"\byou are now\s+(?:an?\s+)?(?:unrestricted|jailbroken|DAN|in developer mode|developer mode|medical doctor who prescribes)\b",
+    r"\b(?:system prompt|reveal your prompt|print (?:your |the )?system instructions|show (?:me )?your (?:prompt|instructions))\b",
+    r"\b(?:pretend to be|roleplay as|act as)\s+(?:an unrestricted|a doctor who prescribes|a hacker|a licensed doctor who prescribes)\b",
 ]
 
+# Secrets the assistant must never reveal. Generic words like "environment" or
+# "tokens" only count when they clearly point at the system ("your env",
+# "environment variables"), never at the user's surroundings.
+_SECRET_NOUNS = (
+    r"(?:api[_\s-]?keys?|gemini[_\s-]?(?:api[_\s-]?)?keys?|secret[_\s-]?keys?|secrets"
+    r"|credentials|passwords?|access[_\s-]?tokens?|auth[_\s-]?tokens?|bearer tokens?"
+    r"|\.env(?:\s+file)?|env\s+file|environment\s+variables?|env\s+vars?)"
+)
+_SYSTEM_OWNED_GENERIC = r"(?:your|the\s+server'?s?|the\s+system'?s?|system)\s+(?:env|environment|config|configuration|tokens?)\b"
+
 DATA_EXTRACTION_PATTERNS = [
-    # Attempts to extract env, api keys, tokens, credentials, secrets
-    r"\b(give|show|print|tell|reveal|send|display|share|leak|dump|provide|output)\b.*?\b(your |the |all )?(env|\.env|environment|api[_\s-]?keys?|gemini[_\s-]?key|secrets?|tokens?|credentials?|passwords?)\b",
-    r"\bwhat is (your |the )?(env|\.env|api[_\s-]?key|secret|token|gemini[_\s-]?api[_\s-]?key|password)\b",
-    r"\b(read|cat|echo|printenv|env)\b.*?\b(\.env|config\.py|credentials|environment)\b",
+    rf"\b(?:give|show|print|tell|reveal|send|display|share|leak|dump|provide|output|list|read)\b{_SAME_SENTENCE}(?:{_SECRET_NOUNS}|{_SYSTEM_OWNED_GENERIC})",
+    rf"\bwhat(?:'s| is| are)\s+(?:your|the)\s+(?:{_SECRET_NOUNS}|env)\b",
+    r"\b(?:cat|echo|printenv)\b[^.?!\n]{0,20}(?:\.env|config\.py|credentials)",
 ]
 
 SECRET_LEAKAGE_PATTERNS = [
@@ -76,20 +95,72 @@ PRESCRIPTION_DRUGS = [
     r"\b(clobetasol|clobetasol propionate|triamcinolone|betamethasone)\b",
 ]
 
+# "you have <condition>" is softened, but only when "have" is not an auxiliary
+# or modal verb ("you have been using", "you have to", "you have tried").
+_NON_DIAGNOSTIC_AFTER_HAVE = (
+    r"been|had|to|got|gotten|tried|used|applied|mentioned|described|noticed|reported|"
+    r"said|shared|already|not|no|never|experienced|developed|done|started|stopped|"
+    r"seen|felt|taken|any|some|questions?|options|time"
+)
 DEFINITIVE_DIAGNOSIS_PATTERNS = [
-    (r"\byou have ([a-z\s]+)(?:disease|condition|infection)?\b", r"your symptoms may be consistent with \1"),
-    (r"\byour diagnosis is\b", r"possible considerations include"),
-    (r"\byou are suffering from\b", r"you may be experiencing"),
-    (r"\byou definitely have\b", r"you might have"),
+    (rf"\byou (?:definitely |certainly |clearly )?have (?!(?:{_NON_DIAGNOSTIC_AFTER_HAVE})\b)", "your symptoms may be consistent with "),
+    (r"\byour diagnosis is\b", "possible considerations include"),
+    (r"\byou are suffering from\b", "you may be experiencing"),
 ]
 
 SEVERE_SYMPTOMS_TRIGGERS = [
-    r"\b(fever|chills)\b",
-    r"\b(yellow pus|green pus|oozing pus)\b",
-    r"\b(bleeding|blood oozing)\b",
-    r"\b(intense pain|severe pain|excruciating pain|unbearable pain)\b",
-    r"\b(spreading rapidly|worsening rapidly|rapidly spreading)\b",
+    r"\b(?:fever|chills)\b",
+    r"\b(?:yellow pus|green pus|oozing pus)\b",
+    r"\b(?:bleeding|blood oozing)\b",
+    r"\b(?:intense pain|severe pain|excruciating pain|unbearable pain)\b",
+    r"\b(?:spreading rapidly|worsening rapidly|rapidly spreading)\b",
 ]
+
+# A red flag is ignored when the user explicitly negates it in the same clause
+# ("no fever", "it is not bleeding", "without fever or chills").
+_NEGATION = re.compile(
+    r"\b(?:no|not|without|never|denies|deny|free of|absence of|"
+    r"(?:do|does|did|is|are|was|were|has|have|had)n'?t|(?:do|does|did) not)\b",
+    flags=re.IGNORECASE,
+)
+_CLAUSE_BREAK = re.compile(r"[.,;:!?\n]|\b(?:but|however|although|though|yet|except)\b", flags=re.IGNORECASE)
+_NEGATION_WINDOW_CHARS = 40
+
+# A recommendation that tells the user to avoid a drug does not need the
+# "requires prescription" notice.
+_AVOIDANCE_PREFIX = re.compile(r"^\s*(?:avoid|don'?t|do not|stop|never|skip)\b", flags=re.IGNORECASE)
+_PROFESSIONAL_WORDS = ("prescription", "dermatologist", "doctor", "physician", "healthcare provider")
+
+
+def _is_negated(text: str, match_start: int) -> bool:
+    """True when a negation word precedes the match within the same clause."""
+    window = text[max(0, match_start - _NEGATION_WINDOW_CHARS):match_start]
+    breaks = list(_CLAUSE_BREAK.finditer(window))
+    if breaks:
+        window = window[breaks[-1].end():]
+    return bool(_NEGATION.search(window))
+
+
+def _has_unnegated_red_flag(text: str) -> bool:
+    for trigger in SEVERE_SYMPTOMS_TRIGGERS:
+        for match in re.finditer(trigger, text, flags=re.IGNORECASE):
+            if not _is_negated(text, match.start()):
+                return True
+    return False
+
+
+def _soften_diagnosis(text: str) -> str:
+    """Replace definitive diagnostic phrasing, keeping sentence-start capitals."""
+    def _replace_keep_case(replacement: str):
+        def _sub(match: re.Match) -> str:
+            if match.group(0)[:1].isupper():
+                return replacement[:1].upper() + replacement[1:]
+            return replacement
+        return _sub
+
+    for pattern, replacement in DEFINITIVE_DIAGNOSIS_PATTERNS:
+        text = re.sub(pattern, _replace_keep_case(replacement), text, flags=re.IGNORECASE)
+    return text
 
 
 class AIGuardrail:
@@ -203,25 +274,20 @@ class AIGuardrail:
         professional_advice = response.professional_advice
 
         # 1. Soften any definitive diagnostic phrasing
-        for pattern, replacement in DEFINITIVE_DIAGNOSIS_PATTERNS:
-            summary = re.sub(pattern, replacement, summary, flags=re.IGNORECASE)
+        summary = _soften_diagnosis(summary)
 
         # 2. Check for prescription drug mentions in recommendations
         sanitized_recs: List[str] = []
         for rec in recommendations:
             rec_modified = rec
-            for rx_pattern in PRESCRIPTION_DRUGS:
-                if re.search(rx_pattern, rec, flags=re.IGNORECASE):
-                    # Ensure it clarifies prescription requirement
-                    if "prescription" not in rec.lower() and "dermatologist" not in rec.lower() and "doctor" not in rec.lower():
-                        rec_modified = f"{rec} (Requires professional consultation and prescription from a qualified healthcare provider)"
+            mentions_rx = any(re.search(p, rec, flags=re.IGNORECASE) for p in PRESCRIPTION_DRUGS)
+            already_qualified = any(word in rec.lower() for word in _PROFESSIONAL_WORDS)
+            if mentions_rx and not already_qualified and not _AVOIDANCE_PREFIX.search(rec):
+                rec_modified = f"{rec} (Requires professional consultation and prescription from a qualified healthcare provider)"
             sanitized_recs.append(rec_modified)
 
         # 3. Enforce triage escalation for severe or alarming symptoms
-        has_severe_symptom = any(
-            re.search(trigger, lower_input, flags=re.IGNORECASE) for trigger in SEVERE_SYMPTOMS_TRIGGERS
-        )
-        if has_severe_symptom:
+        if _has_unnegated_red_flag(lower_input):
             professional_advice = True
             if severity in [SeverityLevel.LOW, SeverityLevel.UNKNOWN]:
                 severity = SeverityLevel.HIGH

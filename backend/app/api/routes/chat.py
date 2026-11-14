@@ -2,16 +2,14 @@
 
 from fastapi import APIRouter, Depends, status
 
+from app.api.deps import get_ai_service
 from app.core.exceptions import CHAT_RESPONSES
 from app.schemas.chat import ChatRequest, ChatResponse
-from app.services.ai_service import AIService, BaseAIService
+from app.services.ai_service import BaseAIService
 
 router = APIRouter(prefix="", tags=["Chat"])
 
-
-def get_ai_service() -> BaseAIService:
-    """Dependency provider for the AI service abstraction."""
-    return AIService()
+__all__ = ["router", "get_ai_service"]
 
 
 @router.post(

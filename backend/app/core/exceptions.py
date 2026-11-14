@@ -1,6 +1,7 @@
 """Centralized custom exceptions and FastAPI exception handlers."""
 
 import logging
+
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 
@@ -107,9 +108,8 @@ async def ai_provider_error_handler(request: Request, exc: AIProviderError) -> J
 
 async def ai_audio_validation_error_handler(request: Request, exc: AIAudioValidationError) -> JSONResponse:
     logger.warning("Audio validation failed at %s: %s", request.url.path, exc.message)
-    status_code = getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", status.HTTP_422_UNPROCESSABLE_ENTITY)
     return JSONResponse(
-        status_code=status_code,
+        status_code=422,
         content={"detail": exc.message},
     )
 

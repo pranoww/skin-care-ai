@@ -6,14 +6,13 @@ from pydantic import ValidationError
 
 from app.api.routes.chat import get_ai_service
 from app.main import app
-from app.schemas.chat import ChatRequest, ChatResponse, SeverityLevel
+from app.schemas.chat import ChatResponse, SeverityLevel
 from app.services.ai_service import (
-    BaseAIService,
     AIConfigurationError,
+    AIProviderError,
     AIRateLimitError,
     AITimeoutError,
-    AIResponseValidationError,
-    AIProviderError,
+    BaseAIService,
 )
 
 client = TestClient(app)

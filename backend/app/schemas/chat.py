@@ -1,6 +1,9 @@
 from enum import Enum
-from typing import List, Optional
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+from typing import List, Literal, Optional
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.core.config import Settings
 
 
 class SeverityLevel(str, Enum):
@@ -29,8 +32,10 @@ class ChatRequest(BaseModel):
         trimmed = value.strip()
         if not trimmed:
             raise ValueError("Message cannot be empty or contain only whitespace.")
-        if len(trimmed) > 2000:
-            raise ValueError("Message exceeds maximum allowed length of 2000 characters.")
+        if len(trimmed) > Settings.MAX_MESSAGE_CHARS:
+            raise ValueError(
+                f"Message exceeds maximum allowed length of {Settings.MAX_MESSAGE_CHARS} characters."
+            )
         return trimmed
 
 
@@ -104,6 +109,10 @@ class VoiceChatResponse(BaseModel):
         ...,
         description="Transcribed text from user's voice input."
     )
+    transcription_source: Literal["client", "server"] = Field(
+        default="server",
+        description="'client' when the browser transcript was used, 'server' when the audio was transcribed by the AI provider.",
+    )
     analysis: ChatResponse = Field(
         ...,
         description="Structured skin concern analysis from the AI service."
@@ -116,3 +125,47 @@ class VoiceChatResponse(BaseModel):
         default=None,
         description="Synthesized audio data URL (data:audio/wav;base64,...) for client playback."
     )
+    audio_error: Optional[str] = Field(
+        default=None,
+        description="Why audio is missing (TTS disabled or failed). The analysis is still valid.",
+    )
+
+
+# JSON schema sent to the model for structured output. Kept flat and explicit
+# (no $refs, no numeric bounds, no examples) so strict constrained decoding
+# works across providers; ChatResponse still validates the result afterwards.
+ANALYSIS_OUTPUT_SCHEMA = {
+    "title": "SkinCareAnalysis",
+    "description": "Cautious, non-diagnostic analysis of a described skin concern.",
+    "type": "object",
+    "properties": {
+        "skin_concern": {"type": "string", "description": "Possible concern or category, phrased tentatively."},
+        "summary": {"type": "string", "description": "Short explanation using cautious, non-definitive wording."},
+        "possible_factors": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Possible contributing factors.",
+        },
+        "recommendations": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "General, non-prescription care suggestions.",
+        },
+        "severity": {"type": "string", "enum": ["low", "medium", "high", "unknown"]},
+        "confidence": {"type": "number", "description": "Between 0.0 and 1.0."},
+        "professional_advice": {
+            "type": "boolean",
+            "description": "True when seeing a dermatologist or doctor is recommended.",
+        },
+    },
+    "required": [
+        "skin_concern",
+        "summary",
+        "possible_factors",
+        "recommendations",
+        "severity",
+        "confidence",
+        "professional_advice",
+    ],
+    "additionalProperties": False,
+}

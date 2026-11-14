@@ -1,96 +1,58 @@
-'use client';
-
+import { CircleAlert, X } from 'lucide-react';
 import ChatMessage from './ChatMessage';
 import AnalysisResponse from './AnalysisResponse';
 import LoadingState from '../ui/LoadingState';
 
-export default function ChatContainer({
-  userMessage,
-  timestamp,
-  analysis,
-  audio,
-  spokenSummary,
-  isLoading,
-  error,
-  onDismissError,
-}) {
-  return (
-    <div className="p-8 sm:p-10 lg:p-12 flex flex-col max-w-3xl">
-      {/* Section Header */}
-      <div className="pb-6 border-b border-surface-container-highest mb-8 flex items-center justify-between">
-        <div>
-          <h2 className="font-headline-md text-on-surface font-medium">AI Analysis</h2>
-          <p className="font-label-sm uppercase tracking-wider text-secondary mt-1">
-            Algorithmic Triage &amp; Assessment
-          </p>
-        </div>
-        <div className="hidden sm:flex items-center gap-2 px-3 py-1 bg-surface-container rounded border border-surface-container-highest">
-          <span className={`w-1.5 h-1.5 rounded-full ${isLoading ? 'bg-secondary animate-ping' : 'bg-primary-container'}`}></span>
-          <span className="font-label-sm uppercase tracking-wider text-on-surface-variant">
-            {isLoading ? 'Analyzing Telemetry' : 'Model Synchronized'}
-          </span>
-        </div>
-      </div>
+export default function ChatContainer({ result, pendingMessage, isLoading, error, onDismissError }) {
+  const shownMessage = isLoading ? pendingMessage : result.userMessage;
 
-      {/* Error Banner */}
+  return (
+    <div className="flex flex-col gap-8 max-w-3xl" aria-live="polite" aria-busy={isLoading}>
+      <h2 id="analysis" className="heading-section scroll-mt-4">Analysis</h2>
+
       {error && (
-        <div className="mb-6 p-4 bg-error-container border border-error rounded flex items-start justify-between gap-3 text-on-error-container">
-          <div className="flex items-start gap-2">
-            <span className="material-symbols-outlined text-[20px] text-error mt-0.5">error</span>
-            <div className="flex flex-col">
-              <span className="font-label-sm uppercase font-semibold text-error">Analysis Error</span>
-              <p className="font-body-sm text-on-surface">{error}</p>
+        <div role="alert" className="flex items-start justify-between gap-3 p-4 rounded-[var(--radius-ui)] border border-danger-600 bg-danger-50">
+          <div className="flex items-start gap-3">
+            <CircleAlert className="size-5 shrink-0 mt-0.5 text-danger-600" aria-hidden="true" />
+            <div>
+              <p className="font-semibold text-danger-700">That didn&apos;t work</p>
+              <p className="text-ink">{error}</p>
             </div>
           </div>
-          {onDismissError && (
-            <button
-              onClick={onDismissError}
-              className="text-on-error-container hover:text-error text-sm font-semibold select-none p-1"
-              aria-label="Dismiss error"
-            >
-              ✕
-            </button>
-          )}
+          <button type="button" onClick={onDismissError} className="btn btn-text text-ink-muted" aria-label="Dismiss error">
+            <X className="size-4" aria-hidden="true" />
+          </button>
         </div>
       )}
 
-      {/* Chat-Style Flow */}
-      <div className="flex flex-col gap-8">
-        {/* User Submission Message */}
-        {userMessage && (
-          <ChatMessage message={userMessage} timestamp={timestamp} />
-        )}
+      {shownMessage && (
+        <ChatMessage
+          message={shownMessage}
+          via={isLoading ? null : result.via}
+          transcriptionSource={isLoading ? null : result.transcriptionSource}
+        />
+      )}
 
-        {/* Vertical Separation */}
-        {(userMessage || analysis || isLoading) && (
-          <div className="w-full border-t border-surface-container-highest"></div>
-        )}
-
-        {/* Loading State or AI Analysis */}
-        {isLoading ? (
-          <LoadingState />
-        ) : analysis ? (
-          <AnalysisResponse
-            analysis={analysis}
-            audio={audio}
-            spokenSummary={spokenSummary}
-          />
-        ) : (
-          <div className="p-8 sm:p-12 text-center bg-surface-container-lowest border border-dashed border-outline-variant rounded flex flex-col items-center justify-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-surface-container flex items-center justify-center text-secondary">
-              <span className="material-symbols-outlined text-[22px]">clinical_notes</span>
-            </div>
-            <div className="flex flex-col gap-1 max-w-md">
-              <span className="font-label-md uppercase tracking-wider text-on-surface font-medium">
-                Awaiting Clinical Description
-              </span>
-              <p className="font-body-sm text-on-surface-variant leading-relaxed">
-                Describe your skin concern in the consultation panel on the left and select <strong className="text-primary font-medium">Analyze</strong> to generate an AI diagnostic evaluation, possible contributing factors, and recommendations.
-              </p>
-            </div>
-          </div>
-        )}
-      </div>
+      {isLoading ? (
+        <LoadingState />
+      ) : result.analysis ? (
+        <AnalysisResponse
+          key={result.id}
+          analysis={result.analysis}
+          audio={result.audio}
+          audioError={result.audioError}
+          spokenSummary={result.spokenSummary}
+        />
+      ) : (
+        <div className="panel-muted p-6 sm:p-8">
+          <p className="heading-card">Your analysis will appear here</p>
+          <p className="mt-2 text-ink-muted">
+            Describe what you&apos;re noticing: where it is, how long it has lasted, what it feels like and
+            anything that seems to trigger it. You&apos;ll get possible causes, gentle care suggestions and a
+            note on whether to see a dermatologist.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

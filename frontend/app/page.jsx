@@ -6,80 +6,69 @@ import ChatInput from '../components/chat/ChatInput';
 import ChatContainer from '../components/chat/ChatContainer';
 import { analyzeSkinConcern, sendVoiceMessage } from '../lib/api';
 
+const EMPTY_RESULT = {
+  id: 0,
+  userMessage: '',
+  via: null, // 'text' | 'voice'
+  transcriptionSource: null,
+  analysis: null,
+  audio: null,
+  audioError: null,
+  spokenSummary: null,
+};
+
 export default function Home() {
-  const [userMessage, setUserMessage] = useState('');
-  const [analysis, setAnalysis] = useState(null);
-  const [audio, setAudio] = useState(null);
-  const [spokenSummary, setSpokenSummary] = useState(null);
+  const [result, setResult] = useState(EMPTY_RESULT);
+  const [pendingMessage, setPendingMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [latency, setLatency] = useState(null);
 
-  // Text analysis submission
-  const handleAnalyze = async (message) => {
+  const run = async (pendingText, task) => {
     setIsLoading(true);
     setError(null);
-    setAudio(null);
-    setSpokenSummary(null);
-    setUserMessage(message);
-    const startTime = Date.now();
-
+    setPendingMessage(pendingText);
     try {
-      const result = await analyzeSkinConcern(message);
-      const elapsed = Date.now() - startTime;
-      setLatency(elapsed);
-      setAnalysis(result);
+      const next = await task();
+      setResult((prev) => ({ ...EMPTY_RESULT, ...next, id: prev.id + 1 }));
+      // On stacked (mobile) layouts the result renders below the form; bring it into view.
+      if (window.matchMedia('(max-width: 1023px)').matches) {
+        requestAnimationFrame(() => document.getElementById('analysis')?.scrollIntoView({ block: 'start' }));
+      }
     } catch (err) {
-      setError(err.message || 'Failed to analyze skin concern. Please check backend connection.');
+      setError(err.message || 'Something went wrong. Please try again.');
     } finally {
       setIsLoading(false);
+      setPendingMessage('');
     }
   };
 
-  // Voice analysis submission
-  const handleVoiceSubmit = async (audioBlob, filename, transcriptHint = '') => {
-    setIsLoading(true);
-    setError(null);
-    setAudio(null);
-    setSpokenSummary(null);
-    setUserMessage(transcriptHint || 'Transcribing audio recording...');
-    const startTime = Date.now();
+  const handleAnalyze = (message) =>
+    run(message, async () => {
+      const analysis = await analyzeSkinConcern(message);
+      return { userMessage: message, via: 'text', analysis };
+    });
 
-    try {
-      const result = await sendVoiceMessage(audioBlob, filename, transcriptHint);
-      const elapsed = Date.now() - startTime;
-      setLatency(elapsed);
-
-      // Display transcribed text in user message box
-      setUserMessage(result.transcription || 'Voice message transcribed');
-      setAnalysis(result.analysis);
-      setAudio(result.audio || null);
-      setSpokenSummary(result.spoken_summary || null);
-    } catch (err) {
-      setError(err.message || 'Failed to transcribe or analyze voice recording.');
-      setUserMessage('');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const handleVoiceSubmit = (audioBlob, filename, transcriptHint = '') =>
+    run(transcriptHint || 'Transcribing your recording…', async () => {
+      const data = await sendVoiceMessage(audioBlob, filename, transcriptHint);
+      return {
+        userMessage: data.transcription,
+        via: 'voice',
+        transcriptionSource: data.transcription_source || null,
+        analysis: data.analysis,
+        audio: data.audio || null,
+        audioError: data.audio_error || null,
+        spokenSummary: data.spoken_summary || null,
+      };
+    });
 
   return (
     <SplitLayout
-      leftPanel={
-        <ChatInput
-          onSubmit={handleAnalyze}
-          onVoiceSubmit={handleVoiceSubmit}
-          isLoading={isLoading}
-          latency={latency}
-        />
-      }
+      leftPanel={<ChatInput onSubmit={handleAnalyze} onVoiceSubmit={handleVoiceSubmit} isLoading={isLoading} />}
       rightPanel={
         <ChatContainer
-          userMessage={userMessage}
-          timestamp="T-00:01"
-          analysis={analysis}
-          audio={audio}
-          spokenSummary={spokenSummary}
+          result={result}
+          pendingMessage={pendingMessage}
           isLoading={isLoading}
           error={error}
           onDismissError={() => setError(null)}
